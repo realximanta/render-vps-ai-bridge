@@ -252,7 +252,7 @@ async function runAgentFlow(ctx, task) {
   return ctx.reply(`⚠️ ${result.error}\n\nSteps tried:\n${hist}`, mainMenu());
 }
 
-  // ── Bot factory ──
+// ── Bot factory ──
 function createBot() {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) throw new Error('TELEGRAM_BOT_TOKEN not set');
@@ -268,7 +268,7 @@ function createBot() {
     return next();
   });
 
-  // 2️⃣ Then your /yes and /no
+  // 2️⃣ /yes and /no for pending writes
   bot.command('yes', async (ctx) => {
     const m = st(ctx.chat.id);
     if (!m.pendingWrite) return ctx.reply('Nothing pending.', mainMenu());
@@ -288,13 +288,7 @@ function createBot() {
     return ctx.reply('❌ Cancelled.', mainMenu());
   });
 
-  // 3️⃣ Now the rest — /start, actions, text handler, etc.
-  bot.start(...);
-  bot.command('menu', ...);
-  bot.action(...);
-  // ...
-}
-
+  // 3️⃣ Commands
   bot.start(async (ctx) => {
     const m = st(ctx.chat.id);
     await ctx.reply(
@@ -310,6 +304,7 @@ function createBot() {
 
   bot.command('menu', (ctx) => ctx.reply('🤖 Main menu', mainMenu()));
 
+  // 4️⃣ Menu actions
   bot.action(/^menu:(.+)$/, async (ctx) => {
     const a = ctx.match[1];
     await ctx.answerCbQuery();
@@ -388,7 +383,7 @@ function createBot() {
       return ctx.editMessageText(`📂 ${name} — ${files.length} items\n\n${lines.join('\n')}`,
         repoActions(name));
     }
-    if (a === 'refresh') return repoActions(name) && ctx.editMessageReplyMarkup(repoActions(name).reply_markup);
+    if (a === 'refresh') return ctx.editMessageReplyMarkup(repoActions(name).reply_markup);
     if (a === 'open') {
       const info = await github.repoDetails(name);
       if (info) return ctx.reply(info.url);
@@ -419,12 +414,12 @@ function createBot() {
     }
   });
 
+  // 5️⃣ Text handler (intent pipeline)
   bot.on('text', async (ctx) => {
     const text = ctx.message.text.trim();
     if (!text) return;
     const m = st(ctx.chat.id);
 
-    // Conversation flows
     if (m.awaitingNewRepo) {
       m.awaitingNewRepo = false;
       const name = text.replace(/\s+/g, '-').toLowerCase();
@@ -487,15 +482,12 @@ function createBot() {
       return safeSend(ctx, result, repoActions(repo));
     }
 
-    // ── INTENT PIPELINE ──
-    // 1. Rules
+    // Intent pipeline
     const rule = intent.matchRule(text);
     if (rule) return executeIntent(ctx, rule.intent, rule.args);
 
-    // 2. Agent for complex
     if (intent.needsAgent(text)) return runAgentFlow(ctx, text);
 
-    // 3. AI intent parser (only if it looks command-y)
     if (intent.looksLikeCommand(text)) {
       const parsed = await intent.parseIntent(text);
       if (parsed && parsed.intent && parsed.intent !== 'unknown') {
@@ -503,7 +495,6 @@ function createBot() {
       }
     }
 
-    // 4. Fallback — chat
     return askAiFlow(ctx, text, m.model);
   });
 
