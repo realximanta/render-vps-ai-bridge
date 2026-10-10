@@ -81,13 +81,6 @@ app.post('/api/ask', auth, (req, res) => {
   });
 });
 
-// ─── 2. Poll result ───
-app.get('/api/jobs/:jobId', auth, (req, res) => {
-  const job = jobs.get(req.params.jobId);
-  if (!job) return res.status(404).json({ error: 'job not found', developer: DEVELOPER_INFO });
-  res.json({ ...job, developer: DEVELOPER_INFO });
-});
-
 // ─── 3. Worker asks for next job ───
 app.get('/api/jobs/pending', auth, (req, res) => {
   let jobId;
@@ -105,6 +98,14 @@ app.get('/api/jobs/pending', auth, (req, res) => {
   res.json({
     job: { jobId: job.jobId, prompt: job.prompt, model: job.model }
   });
+});
+
+
+// ─── 2. Poll result ───
+app.get('/api/jobs/:jobId', auth, (req, res) => {
+  const job = jobs.get(req.params.jobId);
+  if (!job) return res.status(404).json({ error: 'job not found', developer: DEVELOPER_INFO });
+  res.json({ ...job, developer: DEVELOPER_INFO });
 });
 
 // ─── 4. Worker posts result ───
