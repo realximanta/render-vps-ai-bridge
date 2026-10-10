@@ -7,10 +7,20 @@ services:
     branch: main
     buildCommand: npm install
     startCommand: npm start
-    healthCheckPath: /
+    healthCheckPath: /health
     autoDeploy: true
     envVars:
       - key: API_KEY
         sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_ALLOWED_IDS
+        sync: false
+      - key: GH_TOKEN
+        sync: false
+      - key: MODEL_CHAT
+        value: gemma3:1b
+      - key: MODEL_CODE
+        value: qwen2.5-coder:1.5b
       - key: NODE_VERSION
         value: 20.11.0
