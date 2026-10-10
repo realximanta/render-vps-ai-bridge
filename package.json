@@ -1,0 +1,15 @@
+{
+  "name": "render-vps-ai-bridge",
+  "version": "1.0.0",
+  "description": "🪄 Bridge between users and VPS-hosted Ollama. By @tukuexe",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": { "node": ">=18.0.0" },
+  "author": "Himanta Bhuyan (@tukuexe)",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
