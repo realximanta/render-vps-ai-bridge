@@ -84,7 +84,10 @@ async function listFiles(repoName, path = '') {
     const { data } = await octokit.repos.getContent({ owner: user, repo: repoName, path });
     const arr = Array.isArray(data) ? data : [data];
     return arr.map(c => ({ name: c.name, path: c.path, type: c.type, size: c.size || 0 }));
-  } catch { return []; }
+  } catch (e) {
+    if (e.status === 404) return [];   // empty repo = no error, just empty
+    throw e;
+  }
 }
 
 async function readFile(repoName, path) {
@@ -94,7 +97,9 @@ async function readFile(repoName, path) {
     const { data } = await octokit.repos.getContent({ owner: user, repo: repoName, path });
     if (data.content) return Buffer.from(data.content, 'base64').toString('utf-8');
     return null;
-  } catch { return null; }
+  } catch (e) {
+    return null;   // any error → null, simpler
+  }
 }
 
 async function writeFile(repoName, path, content, message, branch = null) {
