@@ -1,7 +1,7 @@
 {
   "name": "render-vps-ai-bridge",
-  "version": "1.0.0",
-  "description": "🪄 Bridge between users and VPS-hosted Ollama. By @tukuexe",
+  "version": "2.0.0",
+  "description": "🪄 AI bridge + Telegram bot + GitHub control. By @tukuexe",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -10,6 +10,8 @@
   "author": "Himanta Bhuyan (@tukuexe)",
   "license": "MIT",
   "dependencies": {
-    "express": "^4.19.2"
+    "@octokit/rest": "^21.0.0",
+    "express": "^4.19.2",
+    "telegraf": "^4.16.3"
   }
 }
