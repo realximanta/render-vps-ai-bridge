@@ -101,19 +101,45 @@ async function writeFile(repoName, path, content, message, branch = null) {
   if (!octokit) throw new Error('GitHub not configured');
   try {
     const user = await me();
+
+    // 🎯 FIX: If no branch given, fetch repo's default branch
+    if (!branch) {
+      const { data: repo } = await octokit.repos.get({ owner: user, repo: repoName });
+      branch = repo.default_branch || 'main';
+    }
+
+    // Try to fetch existing file's SHA (needed for updates)
     let sha;
     try {
-      const { data } = await octokit.repos.getContent({ owner: user, repo: repoName, path, ref: branch });
+      const { data } = await octokit.repos.getContent({
+        owner: user, repo: repoName, path, ref: branch
+      });
       sha = data.sha;
-    } catch {}
-    const { data: result } = await octokit.repos.createOrUpdateFileContents({
-      owner: user, repo: repoName, path, message,
+    } catch (e) {
+      // 404 = file doesn't exist yet → new file, sha stays undefined
+    }
+
+    // 🎯 FIX: Build params, only include sha if it exists
+    const params = {
+      owner: user,
+      repo: repoName,
+      path,
+      message,
       content: Buffer.from(content, 'utf-8').toString('base64'),
-      sha, branch
-    });
+      branch  // now always a real string
+    };
+    if (sha) params.sha = sha;
+
+    const { data: result } = await octokit.repos.createOrUpdateFileContents(params);
     repoCache = null;
-    return { ok: true, url: result.commit.html_url, sha: result.commit.sha.slice(0, 7) };
-  } catch (e) { return { ok: false, error: e.message }; }
+    return {
+      ok: true,
+      url: result.commit.html_url,
+      sha: result.commit.sha.slice(0, 7)
+    };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
 }
 
 async function createRepo(name, isPrivate, description = '') {
