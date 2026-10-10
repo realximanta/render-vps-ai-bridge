@@ -162,17 +162,60 @@ async function executeIntent(ctx, name, args = {}) {
       return ctx.reply(r.ok ? `✅ Pushed ${args.path}\n🔗 ${r.url}` : `❌ ${r.error}`);
     }
     case 'generate_readme': {
-      const repo = args.repo || '';
-      const status = await ctx.reply(`📝 Generating README for ${repo}...`);
-      const p = `${tgRules()}\nWrite a professional README.md in Markdown. Output ONLY raw content.\n\nProject: ${repo}\nDescription: ${args.description || repo}`;
-      const content = await queue.aiSync(p, 'readme');
-      if (!content) return ctx.telegram.editMessageText(ctx.chat.id, status.message_id, null,
-        '❌ AI failed.').catch(() => ctx.reply('❌ AI failed.'));
-      const push = await github.writeFile(repo, 'README.md', content, 'docs: add README [bot]');
-      const txt = push.ok ? `✅ README pushed to ${repo}\n🔗 ${push.url}` : `❌ ${push.error}`;
-      return ctx.telegram.editMessageText(ctx.chat.id, status.message_id, null, txt)
-        .catch(() => ctx.reply(txt));
-    }
+  const repo = args.repo || '';
+  const status = await ctx.reply(`📝 Generating README for ${repo}...`);
+
+  // 🎯 FIX 1: Read the CURRENT README first
+  const existing = await github.readFile(repo, 'README.md') || '';
+
+  // 🎯 FIX 2: Also list the repo's files so AI understands the project
+  let fileList = [];
+  try { fileList = (await github.listFiles(repo)).map(f => f.name); } catch {}
+
+  const context = existing
+    ? `Here is the CURRENT README:\n\n---\n${existing.slice(0, 3000)}\n---\n\n`
+    : `The repo has no README yet. Files: ${fileList.join(', ') || '(empty)'}\n\n`;
+
+  const p = [
+    tgRules(),
+    '',
+    'You are a professional technical writer.',
+    'Your job: produce a COMPLETE, high-quality README.md in Markdown.',
+    'Output ONLY the raw README content — no fences, no explanations.',
+    '',
+    'HARD RULES:',
+    '- NEVER output just the user\'s instruction as content.',
+    '- Preserve all valuable info from the current README.',
+    '- If the user asks for badges, ADD valid shields.io badges at the top.',
+    '- Include: # Title, short description, ## Features, ## Installation, ## Usage, ## License.',
+    '- Keep it under 4000 chars.',
+    '',
+    context,
+    `USER INSTRUCTION: ${args.description || 'Write/update the README'}`,
+    '',
+    'Now output the FULL README.md:'
+  ].join('\n');
+
+  const content = await queue.aiSync(p, 'readme');
+
+  // 🎯 FIX 3: Sanity check — refuse to push garbage
+  if (!content || content.trim().length < 100) {
+    const msg = `❌ AI produced bad output (${content?.length || 0} chars). Not pushed.\n\nPreview: ${content?.slice(0, 200) || '(empty)'}`;
+    return ctx.telegram.editMessageText(ctx.chat.id, status.message_id, null, msg)
+      .catch(() => ctx.reply(msg));
+  }
+
+  // 🎯 FIX 4: Show preview & ask for confirmation
+  const preview = content.slice(0, 500) + (content.length > 500 ? '…' : '');
+  await ctx.telegram.editMessageText(ctx.chat.id, status.message_id, null,
+    `📝 Preview (${content.length} chars):\n\n${preview}\n\n⚠️ Send /yes to push, /no to cancel.`
+  ).catch(() => {});
+
+  // Store pending action
+  const m = st(ctx.chat.id);
+  m.pendingWrite = { repo, path: 'README.md', content, message: 'docs: update README [bot]' };
+  return;
+}
     case 'clear_cache': {
       github.clearCache();
       return ctx.reply('🔄 Cache cleared.', mainMenu());
@@ -209,12 +252,13 @@ async function runAgentFlow(ctx, task) {
   return ctx.reply(`⚠️ ${result.error}\n\nSteps tried:\n${hist}`, mainMenu());
 }
 
-// ── Bot factory ──
+  // ── Bot factory ──
 function createBot() {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) throw new Error('TELEGRAM_BOT_TOKEN not set');
   const bot = new Telegraf(token);
 
+  // 1️⃣ AUTH FIRST — protects everything below
   bot.use(async (ctx, next) => {
     if (!ctx.chat) return;
     if (!isAllowed(ctx)) {
@@ -223,6 +267,33 @@ function createBot() {
     }
     return next();
   });
+
+  // 2️⃣ Then your /yes and /no
+  bot.command('yes', async (ctx) => {
+    const m = st(ctx.chat.id);
+    if (!m.pendingWrite) return ctx.reply('Nothing pending.', mainMenu());
+    const { repo, path, content, message } = m.pendingWrite;
+    m.pendingWrite = null;
+
+    const status = await ctx.reply('⏳ Pushing...');
+    const r = await github.writeFile(repo, path, content, message);
+    const txt = r.ok ? `🎉 Pushed ${path} to ${repo}\n🔗 ${r.url}` : `❌ ${r.error}`;
+    return ctx.telegram.editMessageText(ctx.chat.id, status.message_id, null, txt)
+      .catch(() => ctx.reply(txt));
+  });
+
+  bot.command('no', async (ctx) => {
+    const m = st(ctx.chat.id);
+    m.pendingWrite = null;
+    return ctx.reply('❌ Cancelled.', mainMenu());
+  });
+
+  // 3️⃣ Now the rest — /start, actions, text handler, etc.
+  bot.start(...);
+  bot.command('menu', ...);
+  bot.action(...);
+  // ...
+}
 
   bot.start(async (ctx) => {
     const m = st(ctx.chat.id);
