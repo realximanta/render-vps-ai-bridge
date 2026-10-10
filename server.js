@@ -1,11 +1,13 @@
 /**
- * 🪄 render-vps-ai-bridge
- * Bridge between users and VPS-hosted Ollama.
- * No secrets in code — everything via env vars.
- * Developer: Himanta Bhuyan (@tukuexe)
+ * 🌐 render-vps-ai-bridge v2
+ * Express + AI queue + GitHub routes + Telegram webhook.
+ * By @tukuexe
  */
-
 const express = require('express');
+const queue = require('./queue');
+const github = require('./github');
+const { createBot } = require('./bot');
+
 const app = express();
 app.use(express.json({ limit: '5mb' }));
 
@@ -22,129 +24,101 @@ const DEVELOPER_INFO = {
   },
   bio: 'Self-taught developer & builder. Telegram bots, Android apps, APIs & automation.',
   philosophy: "Don't fear errors. Understand the problem. Don't stop at limitations.",
-  stack: ['Node.js', 'Python', 'Kotlin', 'Rust', 'Telegram Bots', 'Cloudflare', 'Ollama', 'VPS']
+  stack: ['Node.js','Python','Kotlin','Rust','Telegram Bots','Cloudflare','Ollama','VPS']
 };
 
-// ─── In-memory stores ───
-const jobs = new Map();
-const queue = [];
-
-// ─── Auth ───
 function auth(req, res, next) {
   const key = req.headers['x-api-key'] || req.query.api_key;
-  if (key !== API_KEY) {
-    return res.status(401).json({ error: 'unauthorized', developer: DEVELOPER_INFO });
-  }
+  if (key !== API_KEY) return res.status(401).json({ error: 'unauthorized', developer: DEVELOPER_INFO });
   next();
 }
 
-// ─── Health (kept alive by UptimeRobot) ───
-const health = (req, res) => {
-  res.status(200).json({
-    status: 'alive',
-    message: '🧠 AI Bridge is running',
-    version: '1.0.0',
-    uptime_seconds: Math.floor((Date.now() - BOOT_TIME) / 1000),
-    timestamp: new Date().toISOString(),
-    stats: { total_jobs: jobs.size, pending_jobs: queue.length },
-    developer: DEVELOPER_INFO
-  });
-};
+// ── Health ──
+const health = (req, res) => res.json({
+  status: 'alive',
+  message: '🧠 AI Bridge v2 is running',
+  version: '2.0.0',
+  uptime_seconds: Math.floor((Date.now() - BOOT_TIME) / 1000),
+  timestamp: new Date().toISOString(),
+  stats: queue.stats(),
+  github_configured: github.isConfigured(),
+  developer: DEVELOPER_INFO
+});
 app.get('/', health);
 app.get('/health', health);
 app.head('/', (req, res) => res.status(200).end());
 app.head('/health', (req, res) => res.status(200).end());
 
-// ─── 1. Submit prompt ───
+// ── AI Queue (⚠️ /pending BEFORE /:jobId!) ──
 app.post('/api/ask', auth, (req, res) => {
-  const { prompt, model } = req.body;
-  if (!prompt || typeof prompt !== 'string') {
-    return res.status(400).json({ error: 'prompt is required', developer: DEVELOPER_INFO });
-  }
-
-  const jobId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  jobs.set(jobId, {
-    jobId, prompt,
-    model: model || 'chat',
-    status: 'pending',
-    result: null, meta: null,
-    createdAt: Date.now(),
-    startedAt: null,
-    completedAt: null
-  });
-  queue.push(jobId);
-
-  res.status(202).json({
-    ok: true, jobId, status: 'pending',
-    message: '📥 Job queued. Poll /api/jobs/:jobId',
-    developer: DEVELOPER_INFO
-  });
+  const { prompt, model, system, format } = req.body;
+  if (!prompt || typeof prompt !== 'string')
+    return res.status(400).json({ error: 'prompt is required' });
+  const jobId = queue.submitJob({ prompt, model: model || 'chat', system, format });
+  res.status(202).json({ ok: true, jobId, status: 'pending', developer: DEVELOPER_INFO });
 });
 
-// ─── 3. Worker asks for next job ───
 app.get('/api/jobs/pending', auth, (req, res) => {
-  let jobId;
-  while (queue.length > 0) {
-    jobId = queue.shift();
-    if (jobs.has(jobId)) break;
-    jobId = null;
-  }
-  if (!jobId) return res.json({ job: null });
-
-  const job = jobs.get(jobId);
-  job.status = 'processing';
-  job.startedAt = Date.now();
-
-  res.json({
-    job: { jobId: job.jobId, prompt: job.prompt, model: job.model }
-  });
+  const job = queue.nextPending();
+  if (!job) return res.json({ job: null });
+  res.json({ job });
 });
 
-
-// ─── 2. Poll result ───
 app.get('/api/jobs/:jobId', auth, (req, res) => {
-  const job = jobs.get(req.params.jobId);
-  if (!job) return res.status(404).json({ error: 'job not found', developer: DEVELOPER_INFO });
+  const job = queue.getJob(req.params.jobId);
+  if (!job) return res.status(404).json({ error: 'job not found' });
   res.json({ ...job, developer: DEVELOPER_INFO });
 });
 
-// ─── 4. Worker posts result ───
 app.post('/api/jobs/:jobId/result', auth, (req, res) => {
-  const job = jobs.get(req.params.jobId);
-  if (!job) return res.status(404).json({ error: 'job not found' });
-
-  job.status = 'done';
-  job.result = req.body.output ?? null;
-  job.meta = req.body.meta ?? null;
-  job.completedAt = Date.now();
-  job.duration_ms = job.completedAt - (job.startedAt || job.createdAt);
-
-  res.json({ ok: true, jobId: job.jobId, developer: DEVELOPER_INFO });
+  const ok = queue.completeJob(req.params.jobId, req.body.output, req.body.meta);
+  if (!ok) return res.status(404).json({ error: 'job not found' });
+  res.json({ ok: true, jobId: req.params.jobId });
 });
 
-// ─── Cleanup ───
-setInterval(() => {
-  const cutoff = Date.now() - 60 * 60 * 1000;
-  let n = 0;
-  for (const [id, job] of jobs.entries()) {
-    if (job.createdAt < cutoff && job.status === 'done') { jobs.delete(id); n++; }
+// ── GitHub endpoints (external access) ──
+app.get('/api/github/repos', auth, async (req, res) => {
+  try { res.json({ ok: true, repos: await github.listRepos() }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get('/api/github/repos/:name', auth, async (req, res) => {
+  try {
+    const info = await github.repoDetails(req.params.name);
+    if (!info) return res.status(404).json({ error: 'repo not found' });
+    res.json({ ok: true, repo: info });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Boot ──
+async function main() {
+  const publicUrl = process.env.RENDER_EXTERNAL_URL || process.env.PUBLIC_URL;
+
+  if (process.env.TELEGRAM_BOT_TOKEN && publicUrl) {
+    try {
+      const bot = createBot();
+      const path = '/telegram/webhook';
+      const webhookCb = await bot.createWebhook({ domain: publicUrl, path });
+      app.use(webhookCb);
+      console.log(`🤖 Telegram webhook set → ${publicUrl}${path}`);
+    } catch (e) {
+      console.error('⚠️ Telegram setup failed:', e.message);
+    }
+  } else {
+    console.log('⚠️ Telegram bot inactive (missing token or PUBLIC URL)');
   }
-  if (n) console.log(`🧹 Cleaned ${n} old jobs`);
-}, 10 * 60 * 1000);
 
-// ─── Boot ───
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log('');
-  console.log('╔═══════════════════════════════════════════════╗');
-  console.log('║  🪄  render-vps-ai-bridge — by @tukuexe       ║');
-  console.log('╠═══════════════════════════════════════════════╣');
-  console.log(`║  🚀 Listening on port ${String(PORT).padEnd(22)}║`);
-  console.log('║  💓 Health:  /  /health  HEAD /               ║');
-  console.log('║  📥 Submit:  POST /api/ask                    ║');
-  console.log('║  📊 Poll:    GET  /api/jobs/:jobId            ║');
-  console.log('║  🤖 Worker:  GET  /api/jobs/pending           ║');
-  console.log('║  ✅ Result:  POST /api/jobs/:jobId/result     ║');
-  console.log('╚═══════════════════════════════════════════════╝');
-  console.log('');
-});
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => {
+    console.log('');
+    console.log('╔══════════════════════════════════════════════╗');
+    console.log('║  🪄  render-vps-ai-bridge v2 — by @tukuexe   ║');
+    console.log('╠══════════════════════════════════════════════╣');
+    console.log(`║  🚀 Port:  ${String(PORT).padEnd(34)}║`);
+    console.log(`║  🤖 Bot:   ${(process.env.TELEGRAM_BOT_TOKEN ? 'active' : 'inactive').padEnd(34)}║`);
+    console.log(`║  🐙 GH:    ${(github.isConfigured() ? 'active' : 'inactive').padEnd(34)}║`);
+    console.log('╚══════════════════════════════════════════════╝');
+    console.log('');
+  });
+}
+
+main().catch(e => { console.error('❌ Fatal:', e); process.exit(1); });
