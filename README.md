@@ -1,8 +1,8 @@
 # Render VPS AI Bridge
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/render.svg" width="109" alt="Render" />
-  <img src="https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/telegram.svg" width="110" alt="Telegram" />
+  <img src="https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/render.svg" width="260" alt="Render" />
+  <img src="https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/telegram.svg" width="260" alt="Telegram" />
 </p>
 
 <p align="center">
