@@ -147,10 +147,8 @@ This repository is a good fit for:
 - Integrate advanced AI workflows
 - Add production deployment docs
 
-## License
-
-This project does not declare a license in the repository metadata. If you plan to publish it publicly, add a license file such as MIT and update the badge accordingly.
-
+## Author | Developer
+@realximanta AKA @tukuexe 
 ---
 
 <p align="center">
