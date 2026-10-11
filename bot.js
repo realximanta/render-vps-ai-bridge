@@ -89,7 +89,7 @@ function repoActions(n) {
      Markup.button.callback('✏️ Edit', `action:edit:${n}`)],
     [Markup.button.callback('➕ Add File', `action:add:${n}`),
      Markup.button.callback('📝 New README', `action:readme:${n}`)],
-    [Markup.button.callback('🧠 Ask AI', `action:ask:${n}`),
+    [Markup.button.callback('🧠 Ask to AI', `action:ask:${n}`),
      Markup.button.callback('⚙️ Actions', `action:workflows:${n}`)],
     [Markup.button.callback('🔄 Refresh', `action:refresh:${n}`),
      Markup.button.callback('🔗 Open', `action:open:${n}`)],
