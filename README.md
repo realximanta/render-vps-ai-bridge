@@ -148,7 +148,7 @@ This repository is a good fit for:
 - Add production deployment docs
 
 ## Author | Developer
-@realximanta AKA @tukuexe 
+- @realximanta AKA @tukuexe 
 ---
 
 <p align="center">
